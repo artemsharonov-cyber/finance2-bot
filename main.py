@@ -1,7 +1,7 @@
 import os
-import threading
+import asyncio
 from aiohttp import web
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application, CommandHandler, ContextTypes,
     CallbackQueryHandler, MessageHandler, filters,
@@ -9,13 +9,9 @@ from telegram.ext import (
 
 user_state = {}
 
-# --- команды ---
+# --- хендлеры ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Привет! 👋 Я бот для учёта финансов.\n"
-        "Нажми /add, чтобы внести расход или доход.\n"
-        "Посмотреть баланс: /stats"
-    )
+    await update.message.reply_text("Привет! 👋 Я бот для учёта финансов.\nНажми /add, чтобы внести расход или доход.\nПосмотреть баланс: /stats")
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[
@@ -24,82 +20,77 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]]
     await update.message.reply_text("Что добавить?", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# --- реакция на нажатие кнопки ---
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()   # <-- обязательно, иначе Telegram "думает", что кнопка не обработана!
+    q = update.callback_query
+    await q.answer()
+    if q.data == "income":
+        user_state[q.from_user.id] = "income"
+        await q.message.reply_text("Введи сумму дохода (₽):")
+    else:
+        user_state[q.from_user.id] = "expense"
+        await q.message.reply_text("Введи сумму расхода (₽):")
 
-    if query.data == "income":
-        user_state[query.from_user.id] = "income"
-        await query.message.reply_text("Введи сумму дохода (₽):")
-    elif query.data == "expense":
-        user_state[query.from_user.id] = "expense"
-        await query.message.reply_text("Введи сумму расхода (₽):")
-
-# --- ввод суммы ---
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
-    state = user_state.get(uid)
-
-    if not state:
-        return  # если кнопка не нажата
-
+    st = user_state.get(uid)
+    if not st:
+        return
     try:
         amount = float(update.message.text)
     except ValueError:
-        await update.message.reply_text("⚠️ Нужно число, например: 1200")
+        await update.message.reply_text("⚠️ Нужно число")
         return
-
-    if state == "expense":
-        amount = -abs(amount)  # расход минус
-    else:
-        amount = abs(amount)   # доход плюс
+    if st == "expense":
+        amount = -abs(amount)
 
     with open("finance.txt", "a") as f:
         f.write(f"{amount}\n")
-
     user_state[uid] = None
     await update.message.reply_text(f"✅ Добавлено: {amount} ₽")
 
-# --- баланс ---
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         with open("finance.txt") as f:
-            nums = [float(x.strip()) for x in f.readlines()]
+            nums = [float(x) for x in f]
     except FileNotFoundError:
         nums = []
+    await update.message.reply_text(f"💰 Баланс: {sum(nums)} ₽")
 
-    total = sum(nums)
-    await update.message.reply_text(f"💰 Баланс: {total} ₽")
-
-# --- HTTP-заглушка для Render ---
+# --- HTTP healthcheck для Render ---
 async def handle_health(request):
     return web.Response(text="Bot is running")
 
-def run_web():
+async def run_web():
     app = web.Application()
     app.router.add_get("/", handle_health)
+    runner = web.AppRunner(app)
+    await runner.setup()
     port = int(os.environ.get("PORT", 10000))
-    web.run_app(app, host="0.0.0.0", port=port)
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🌍 Web server listening on {port}")
 
 # --- Main ---
-def main():
+async def main():
     token = os.environ.get("BOT_TOKEN")
     if not token:
-        raise RuntimeError("❌ BOT_TOKEN не задан")
+        raise RuntimeError("❌ BOT_TOKEN не найден")
 
     print("🚀 Запускаем бота...")
 
-    tg_app = Application.builder().token(token).build()
-    tg_app.add_handler(CommandHandler("start", start))
-    tg_app.add_handler(CommandHandler("add", add))
-    tg_app.add_handler(CommandHandler("stats", stats))
-    tg_app.add_handler(CallbackQueryHandler(button))   # <-- очень важно!
-    tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
+    bot = Application.builder().token(token).build()
+    bot.add_handler(CommandHandler("start", start))
+    bot.add_handler(CommandHandler("add", add))
+    bot.add_handler(CommandHandler("stats", stats))
+    bot.add_handler(CallbackQueryHandler(button))
+    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
 
-    # aiohttp в главном потоке, бот в фоне
-    threading.Thread(target=tg_app.run_polling, daemon=True).start()
-    run_web()
+    # запускаем и aiohttp, и telegram bot параллельно
+    await run_web()
+    await bot.initialize()
+    await bot.start()
+    await bot.updater.start_polling()
+    await bot.updater.idle()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
