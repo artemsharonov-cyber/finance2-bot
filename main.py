@@ -7,7 +7,6 @@ from telegram.ext import (
     CallbackQueryHandler, MessageHandler, filters
 )
 
-# Храним, что выбрал пользователь (доход или расход)
 user_state = {}
 
 # /start
@@ -35,7 +34,6 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     if query.data == "income":
         user_state[query.from_user.id] = "income"
         await query.message.reply_text("Введи сумму дохода (₽):")
@@ -43,62 +41,41 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state[query.from_user.id] = "expense"
         await query.message.reply_text("Введи сумму расхода (₽):")
 
-# обработка числа
+# обработка суммы
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     state = user_state.get(user_id)
-
     if not state:
         await update.message.reply_text("Сначала используй /add и выбери расход или доход.")
         return
-
     try:
         amount = float(update.message.text)
     except ValueError:
-        await update.message.reply_text("⚠️ Нужно ввести число. Пример: 1200")
+        await update.message.reply_text("⚠️ Нужно число. Пример: 1200")
         return
 
     if state == "expense":
-        amount = -abs(amount)  # расход = минус
+        amount = -abs(amount)
     else:
-        amount = abs(amount)   # доход = плюс
+        amount = abs(amount)
 
-    # сохраняем в файл
     with open("finance.txt", "a") as f:
         f.write(f"{amount}\n")
 
-    user_state[user_id] = None  # сброс состояния
-
+    user_state[user_id] = None
     await update.message.reply_text(f"✅ Записано: {amount} ₽")
 
-# /stats → показывает баланс
+# /stats
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         with open("finance.txt", "r") as f:
             nums = [float(x.strip()) for x in f.readlines()]
     except FileNotFoundError:
         nums = []
-
     total = sum(nums)
     await update.message.reply_text(f"💰 Баланс: {total} ₽")
 
-# запускаем бота
-def run_bot():
-    token = os.environ.get("BOT_TOKEN")
-    if not token:
-        raise RuntimeError("❌ Ошибка: переменная BOT_TOKEN не найдена")
-
-    app = Application.builder().token(token).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add", add))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CallbackQueryHandler(button))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
-
-    app.run_polling()
-
-# запускаем фейковый веб‑сервер для Render
+# HTTP-заглушка для Render
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -106,12 +83,26 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is running")
 
 def run_web():
-    port = int(os.environ.get("PORT", 10000))  # Render сам задаёт PORT
+    port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), SimpleHandler)
     server.serve_forever()
 
+def run_bot():
+    token = os.environ.get("BOT_TOKEN")
+    if not token:
+        raise RuntimeError("❌ BOT_TOKEN не задан")
+
+    app = Application.builder().token(token).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("add", add))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CallbackQueryHandler(button))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
+
+    app.run_polling()  # правильно, без asyncio.run
+
 if __name__ == "__main__":
-    # бот запускается в отдельном потоке
+    # Запускаем бота в отдельном потоке
     threading.Thread(target=run_bot, daemon=True).start()
-    # основной поток держит веб‑сервер (для Render)
+    # Render видит порт — держим процесс живым
     run_web()
