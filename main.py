@@ -1,15 +1,15 @@
 import os
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import asyncio
+from aiohttp import web
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application, CommandHandler, ContextTypes,
-    CallbackQueryHandler, MessageHandler, filters
+    CallbackQueryHandler, MessageHandler, filters,
 )
 
 user_state = {}
 
-# /start
+# --- Telegram bot handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! 👋 Я бот для учёта финансов.\n"
@@ -17,20 +17,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Посмотреть баланс: /stats"
     )
 
-# /add → показываем кнопки
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [
-            InlineKeyboardButton("💸 Расход", callback_data="expense"),
-            InlineKeyboardButton("💵 Доход", callback_data="income"),
-        ]
-    ]
-    await update.message.reply_text(
-        "Что добавить?",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    keyboard = [[
+        InlineKeyboardButton("💸 Расход", callback_data="expense"),
+        InlineKeyboardButton("💵 Доход", callback_data="income"),
+    ]]
+    await update.message.reply_text("Что добавить?", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# обработка выбора кнопки
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -41,19 +34,17 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state[query.from_user.id] = "expense"
         await query.message.reply_text("Введи сумму расхода (₽):")
 
-# обработка суммы
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     state = user_state.get(user_id)
     if not state:
-        await update.message.reply_text("Сначала используй /add и выбери расход или доход.")
+        await update.message.reply_text("Сначала /add и выбери расход или доход.")
         return
     try:
         amount = float(update.message.text)
     except ValueError:
         await update.message.reply_text("⚠️ Нужно число. Пример: 1200")
         return
-
     if state == "expense":
         amount = -abs(amount)
     else:
@@ -61,11 +52,9 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with open("finance.txt", "a") as f:
         f.write(f"{amount}\n")
-
     user_state[user_id] = None
     await update.message.reply_text(f"✅ Записано: {amount} ₽")
 
-# /stats
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         with open("finance.txt", "r") as f:
@@ -75,34 +64,41 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total = sum(nums)
     await update.message.reply_text(f"💰 Баланс: {total} ₽")
 
-# HTTP-заглушка для Render
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is running")
 
-def run_web():
+# --- HTTP server for Render ---
+async def handle_health(request):
+    return web.Response(text="Bot is running")
+
+async def run_web():
+    app = web.Application()
+    app.router.add_get("/", handle_health)
+    runner = web.AppRunner(app)
+    await runner.setup()
     port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
-    server.serve_forever()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🌍 Web server запущен на порту {port}")
 
-def run_bot():
+
+# --- Main ---
+async def main():
     token = os.environ.get("BOT_TOKEN")
     if not token:
         raise RuntimeError("❌ BOT_TOKEN не задан")
+    print("🚀 Запускаем бота...")
 
-    app = Application.builder().token(token).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add", add))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CallbackQueryHandler(button))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
+    tg_app = Application.builder().token(token).build()
+    tg_app.add_handler(CommandHandler("start", start))
+    tg_app.add_handler(CommandHandler("add", add))
+    tg_app.add_handler(CommandHandler("stats", stats))
+    tg_app.add_handler(CallbackQueryHandler(button))
+    tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
 
-    app.run_polling()  # правильно, без asyncio.run
+    # Запускаем web и бота параллельно
+    await asyncio.gather(
+        tg_app.run_polling(),
+        run_web()
+    )
 
 if __name__ == "__main__":
-    # Запускаем бота в отдельном потоке
-    threading.Thread(target=run_bot, daemon=True).start()
-    # Render видит порт — держим процесс живым
-    run_web()
+    asyncio.run(main())
