@@ -1,5 +1,5 @@
 import os
-import asyncio
+import threading
 from aiohttp import web
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
@@ -7,10 +7,9 @@ from telegram.ext import (
     CallbackQueryHandler, MessageHandler, filters,
 )
 
-# ----- состояние пользователя -----
 user_state = {}
 
-# ----- handlers -----
+# --- Telegram bot handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! 👋 Я бот для учёта финансов.\n"
@@ -41,13 +40,11 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not state:
         await update.message.reply_text("Сначала /add и выбери расход или доход.")
         return
-
     try:
         amount = float(update.message.text)
     except ValueError:
         await update.message.reply_text("⚠️ Нужно число. Пример: 1200")
         return
-
     if state == "expense":
         amount = -abs(amount)
     else:
@@ -67,22 +64,18 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nums = []
     await update.message.reply_text(f"💰 Баланс: {sum(nums)} ₽")
 
-# ----- http сервер для Render -----
+# --- HTTP healthcheck for Render ---
 async def handle_health(request):
     return web.Response(text="Bot is running")
 
-async def run_web():
+def run_web():
     app = web.Application()
     app.router.add_get("/", handle_health)
-    runner = web.AppRunner(app)
-    await runner.setup()
     port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"🌍 Web server запущен на порту {port}")
+    web.run_app(app, host="0.0.0.0", port=port)
 
-# ----- запуск -----
-async def main():
+# --- Main ---
+def main():
     token = os.environ.get("BOT_TOKEN")
     if not token:
         raise RuntimeError("❌ BOT_TOKEN не задан")
@@ -96,9 +89,11 @@ async def main():
     tg_app.add_handler(CallbackQueryHandler(button))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
 
-    # 🔹 Запускаем веб и бота параллельно: run_web — в фоне, бот — в loop
-    asyncio.create_task(run_web())
-    await tg_app.run_polling()
+    # запустим http-сервер в отдельном фоне
+    threading.Thread(target=run_web, daemon=True).start()
+
+    # запустим Telegram-бота
+    tg_app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())  
+    main()
