@@ -40,11 +40,13 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not state:
         await update.message.reply_text("Сначала /add и выбери расход или доход.")
         return
+
     try:
         amount = float(update.message.text)
     except ValueError:
         await update.message.reply_text("⚠️ Нужно число. Пример: 1200")
         return
+
     if state == "expense":
         amount = -abs(amount)
     else:
@@ -52,6 +54,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with open("finance.txt", "a") as f:
         f.write(f"{amount}\n")
+
     user_state[user_id] = None
     await update.message.reply_text(f"✅ Записано: {amount} ₽")
 
@@ -63,7 +66,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nums = []
     total = sum(nums)
     await update.message.reply_text(f"💰 Баланс: {total} ₽")
-
 
 # --- HTTP server for Render ---
 async def handle_health(request):
@@ -78,7 +80,6 @@ async def run_web():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     print(f"🌍 Web server запущен на порту {port}")
-
 
 # --- Main ---
 async def main():
