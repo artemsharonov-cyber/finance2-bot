@@ -7,9 +7,10 @@ from telegram.ext import (
     CallbackQueryHandler, MessageHandler, filters,
 )
 
+# ----- состояние пользователя -----
 user_state = {}
 
-# --- Telegram bot handlers ---
+# ----- handlers -----
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! 👋 Я бот для учёта финансов.\n"
@@ -64,10 +65,9 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             nums = [float(x.strip()) for x in f.readlines()]
     except FileNotFoundError:
         nums = []
-    total = sum(nums)
-    await update.message.reply_text(f"💰 Баланс: {total} ₽")
+    await update.message.reply_text(f"💰 Баланс: {sum(nums)} ₽")
 
-# --- HTTP server for Render ---
+# ----- http сервер для Render -----
 async def handle_health(request):
     return web.Response(text="Bot is running")
 
@@ -81,11 +81,12 @@ async def run_web():
     await site.start()
     print(f"🌍 Web server запущен на порту {port}")
 
-# --- Main ---
+# ----- запуск -----
 async def main():
     token = os.environ.get("BOT_TOKEN")
     if not token:
         raise RuntimeError("❌ BOT_TOKEN не задан")
+
     print("🚀 Запускаем бота...")
 
     tg_app = Application.builder().token(token).build()
@@ -95,11 +96,9 @@ async def main():
     tg_app.add_handler(CallbackQueryHandler(button))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
 
-    # Запускаем web и бота параллельно
-    await asyncio.gather(
-        tg_app.run_polling(),
-        run_web()
-    )
+    # 🔹 Запускаем веб и бота параллельно: run_web — в фоне, бот — в loop
+    asyncio.create_task(run_web())
+    await tg_app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())  
