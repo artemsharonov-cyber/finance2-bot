@@ -9,7 +9,7 @@ from telegram.ext import (
 
 user_state = {}
 
-# --- Handlers ---
+# ---------- TELEGRAM HANDLERS -----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! 👋 Я бот для учёта финансов.\n"
@@ -62,7 +62,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nums = []
     await update.message.reply_text(f"💰 Баланс: {sum(nums)} ₽")
 
-# --- Healthcheck для Render ---
+
+# ---------- HEALTHCHECK ----------
 async def handle_health(request):
     return web.Response(text="Bot is running ✅")
 
@@ -71,12 +72,13 @@ async def run_web():
     app.router.add_get("/", handle_health)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get("PORT", 10000))  # Render пробрасывает PORT
+    port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     print(f"🌍 Web server started on port {port}")
 
-# --- Main ---
+
+# ---------- MAIN ----------
 async def main():
     token = os.environ.get("BOT_TOKEN")
     if not token:
@@ -84,21 +86,23 @@ async def main():
 
     print("🚀 Запуск Telegram-бота...")
 
-    bot = Application.builder().token(token).build()
-    bot.add_handler(CommandHandler("start", start))
-    bot.add_handler(CommandHandler("add", add))
-    bot.add_handler(CommandHandler("stats", stats))
-    bot.add_handler(CallbackQueryHandler(button))
-    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
+    app = Application.builder().token(token).build()
 
-    # Запускаем web-сервер параллельно
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("add", add))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CallbackQueryHandler(button))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
+
+    # запускаем web-сервер (чтобы Render видел порт)
     asyncio.create_task(run_web())
 
-    # Запускаем Telegram polling
-    await bot.initialize()
-    await bot.start()
-    await bot.updater.start_polling()
-    await bot.updater.idle()
+    # запускаем telegram polling вручную
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await app.updater.idle()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
