@@ -9,7 +9,7 @@ from telegram.ext import (
 
 user_state = {}
 
-# --- Telegram Handlers ---
+# --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! 👋 Я бот для учёта финансов.\n"
@@ -62,27 +62,27 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nums = []
     await update.message.reply_text(f"💰 Баланс: {sum(nums)} ₽")
 
-# --- Render healthcheck ---
+# --- Healthcheck для Render ---
 async def handle_health(request):
-    return web.Response(text="Bot is running")
+    return web.Response(text="Bot is running ✅")
 
 async def run_web():
     app = web.Application()
     app.router.add_get("/", handle_health)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 10000))  # Render пробрасывает PORT
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"🌍 Web server on port {port}")
+    print(f"🌍 Web server started on port {port}")
 
 # --- Main ---
 async def main():
     token = os.environ.get("BOT_TOKEN")
     if not token:
-        raise RuntimeError("❌ BOT_TOKEN не найден")
+        raise RuntimeError("❌ BOT_TOKEN не найден в переменных окружения")
 
-    print("🚀 Запускаем бота...")
+    print("🚀 Запуск Telegram-бота...")
 
     bot = Application.builder().token(token).build()
     bot.add_handler(CommandHandler("start", start))
@@ -91,10 +91,10 @@ async def main():
     bot.add_handler(CallbackQueryHandler(button))
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
 
-    # запускаем healthcheck параллельно
+    # Запускаем web-сервер параллельно
     asyncio.create_task(run_web())
 
-    # ручной запуск Telegram-бота
+    # Запускаем Telegram polling
     await bot.initialize()
     await bot.start()
     await bot.updater.start_polling()
