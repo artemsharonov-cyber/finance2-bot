@@ -13,7 +13,7 @@ user_state = {}
 # --- Telegram-обработчики ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет! 👋 Я бот для учёта финансов.\n"
+        "Привет! Я бот для учёта финансов.\n"
         "Нажми /add, чтобы внести расход или доход.\n"
         "Посмотреть баланс: /stats"
     )
@@ -72,7 +72,7 @@ async def run_web():
     app.router.add_get("/", handle_health)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get("PORT", 10000))  # Render пробрасывает PORT
+    port = int(os.environ.get("PORT", 10000))  # Render прокидывает PORT
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     print(f"🌍 Web server started on port {port}")
