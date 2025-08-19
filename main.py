@@ -7,7 +7,7 @@ from telegram.ext import (
     CallbackQueryHandler, MessageHandler, filters,
 )
 
-# простая память для сессий
+# Простая память для сессий
 user_state = {}
 
 # --- Telegram-обработчики ---
@@ -72,8 +72,7 @@ async def run_web():
     app.router.add_get("/", handle_health)
     runner = web.AppRunner(app)
     await runner.setup()
-    # Render прокидывает PORT, если его нет — 10000
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 10000))  # Render пробрасывает PORT
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     print(f"🌍 Web server started on port {port}")
@@ -93,10 +92,10 @@ async def main():
     bot.add_handler(CallbackQueryHandler(button))
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount))
 
-    # параллельно поднимаем healthcheck
+    # Параллельно поднимаем healthcheck
     asyncio.create_task(run_web())
 
-    # запускаем polling
+    # Запускаем polling
     await bot.initialize()
     await bot.start()
     await bot.updater.start_polling()
